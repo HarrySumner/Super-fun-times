@@ -1,0 +1,139 @@
+import requests
+from bs4 import BeautifulSoup
+from transformers import RobertaTokenizer, RobertaModel
+import torch
+from sklearn.metrics.pairwise import cosine_similarity
+import pandas as pd
+
+# Load the pre-trained RoBERTa model and tokenizer
+tokenizer = RobertaTokenizer.from_pretrained('roberta-base')
+model = RobertaModel.from_pretrained('roberta-base')
+
+# Function to get RoBERTa embeddings for a sentence
+def get_embedding(sentence):
+    inputs = tokenizer(sentence, return_tensors="pt", truncation=True, padding=True)
+    with torch.no_grad():
+        outputs = model(**inputs)
+    # Return the embedding from the last hidden state (average over tokens)
+    return outputs.last_hidden_state.mean(dim=1).numpy()
+
+# Function to compute similarity between text and a list of related keywords
+def check_bias_presence(text, keywords):
+    text_embedding = get_embedding(text)
+    keyword_embeddings = [get_embedding(kw) for kw in keywords]
+    
+    # Compute the maximum cosine similarity between text and any keyword
+    max_similarity = max([cosine_similarity(text_embedding, kw_emb)[0][0] for kw_emb in keyword_embeddings])
+    
+    # Define a threshold for similarity (adjust as needed)
+    threshold = 0.7
+    return max_similarity > threshold
+
+# Biases and related keywords
+bias_keywords = {
+    'author_page': ['author', 'content creator', 'written by', 'bio', 'about the author'],
+    'expertise_messaging': ['expertise', 'professional', 'specialist', 'industry expert', 'knowledge'],
+    'trusted_icons': ['trusted', 'certified', 'logo', 'badge', 'accredited'],
+    'quotes_from_external_resources': ['source', 'quote', 'cited', 'reference', 'external study'],
+    'personnel_interview': ['interview', 'Q&A', 'discussion', 'conversation', 'testimonials']
+}
+
+# Function to scrape the webpage
+def scrape_webpage(url):
+    response = requests.get(url)
+    if response.status_code == 200:
+        soup = BeautifulSoup(response.text, 'html.parser')
+        page_text = ' '.join([p.get_text() for p in soup.find_all('p')])
+        return page_text
+    else:
+        print(f"Failed to retrieve content from {url}")
+        return None
+
+# List of URLs to compare
+urls = [
+    'https://example.com/landing-page-1',
+    'https://example.com/landing-page-2',
+    'https://example.com/landing-page-3'
+]
+
+# Initialize results list
+results = []
+
+# Process each URL
+for url in urls:
+    print(f"Processing {url}...")
+    # Scrape the webpage
+    text = scrape_webpage(url)
+    
+    if text:
+        bias_results = []
+        # Check for the presence of each bias
+        for bias, keywords in bias_keywords.items():
+            bias_present = check_bias_presence(text, keywords)
+            bias_results.append(1 if bias_present else 0)
+        
+        # Append the results (URL and biases)
+        results.append([url] + bias_results)
+
+# Create a DataFrame from the results
+df = pd.DataFrame(results, columns=['URL'] + list(bias_keywords.keys()))
+
+# Display the table
+print(df)
+
+# RCport CSV file
+df.to_csv('bias_comparison_results_semantic.csv', index=False)
+
+                                import matplotlib.pyplot as plt
+
+# Total number of biases for each page
+bias_counts = df.drop(columns=['URL']).sum(axis=1)
+
+# Plot the bias count for each URL
+plt.figure(figsize=(10, 6))
+plt.barh(df['URL'], bias_counts, color='skyblue')
+plt.xlabel('Number of Biases Detected')
+plt.ylabel('URL')
+plt.title('Total Number of Biases Detected on Each Page')
+plt.show()
+
+# Stacked bar plot
+df.set_index('URL', inplace=True)
+df.plot(kind='bar', stacked=True, figsize=(10, 6), color=['#FF9999', '#66B2FF', '#99FF99', '#FFCC99', '#FF6666'])
+plt.title('Stacked Bar Plot of Biases Across URLs')
+plt.ylabel('Bias Presence (1 = Present, 0 = Absent)')
+plt.xlabel('URL')
+plt.legend(loc='upper right', title='Biases')
+plt.show()
+
+from math import pi
+import matplotlib.pyplot as plt
+
+# Plot a radar chart for a single URL
+def plot_radar_chart(url_row, biases):
+    num_vars = len(biases)
+
+    # Compute angle for each bias
+    angles = [n / float(num_vars) * 2 * pi for n in range(num_vars)]
+    angles += angles[:1]  # Close the loop
+
+    # Plot data
+    values = url_row.drop('URL').values.flatten().tolist()
+    values += values[:1]  # Close the loop
+
+    plt.figure(figsize=(6, 6))
+    ax = plt.subplot(111, polar=True)
+    ax.fill(angles, values, color='skyblue', alpha=0.4)
+    ax.plot(angles, values, color='skyblue', linewidth=2)
+    ax.set_yticklabels([])
+
+    # Add labels to the chart
+    plt.xticks(angles[:-1], biases)
+
+    # Set title
+    plt.title(f"Bias Radar Chart for {url_row['URL']}")
+    plt.show()
+
+# Example: Plot radar chart for the first URL in the DataFrame
+plot_radar_chart(df.iloc[0], biases)
+
